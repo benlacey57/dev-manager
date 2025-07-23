@@ -219,7 +219,84 @@ class TemplateManager:
                 'networks': ['dev-network']
             }
             compose_config['volumes']['postgres_data'] = {}
-            
+
+        # Add Redis if needed
+        if 'redis' in str(template_config).lower():
+            compose_config['services']['redis'] = {
+                'image': 'redis:7-alpine',
+                'container_name': f"{project_name}-redis",
+                'ports': ['6379:6379'],
+                'networks': ['dev-network']
+            }
+        
+        # Write docker-compose.yml
+        with open(project_path / 'docker-compose.yml', 'w') as f:
+            yaml.dump(compose_config, f, default_flow_style=False)
+    
+    def _get_primary_tool(self, template_config: Dict) -> str:
+        """Determine primary tool from template config"""
+        name = template_config.get('name', '').lower()
+        
+        if 'php' in name or 'laravel' in name or 'wordpress' in name:
+            return 'php'
+        elif 'node' in name or 'vue' in name or 'nuxt' in name or 'react' in name:
+            return 'node'
+        elif 'python' in name or 'fastapi' in name or 'django' in name:
+            return 'python'
+        
+        # Check tech stack
+        tech_stack = template_config.get('tech_stack', [])
+        for tech in tech_stack:
+            tech_lower = tech.lower()
+            if 'php' in tech_lower:
+                return 'php'
+            elif 'node' in tech_lower or 'javascript' in tech_lower:
+                return 'node'
+            elif 'python' in tech_lower:
+                return 'python'
+        
+        return 'node'  # Default fallback
+    
+    def _create_env_file(self, template_config: Dict, project_path: Path, project_name: str, domain: str, versions: Dict[str, str]):
+        """Create .env file with version information"""
+        env_content = f"""# Project Configuration
+PROJECT_NAME={project_name}
+DOMAIN={domain or f"{project_name}.local"}
+NODE_ENV=development
+
+# Tool Versions
+"""
+        
+        # Add version information
+        for tool, version in versions.items():
+            env_content += f"{tool.upper()}_VERSION={version}\n"
+        
+        env_content += """
+# Database Configuration
+DB_HOST=db
+DB_PORT=3306
+DB_NAME={project_name}
+DB_USER=user
+DB_PASSWORD=password
+
+# Redis Configuration
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# Code Server Configuration
+CODE_SERVER_PASSWORD=devpassword
+"""
+        
+        # Add template-specific environment variables
+        for key, value in template_config.get('environment', {}).items():
+            env_content += f"{key}={value}\n"
+        
+        with open(project_path / '.env', 'w') as f:
+            f.write(env_content)
+        
+        # Also create .env.example
+        with open(project_path / '.env.example', 'w') as f:
+            f.write(env_content)
         
     def _copy_template_files(self, template_dir: Path, project_path: Path, variables: Dict[str, str]):
         """Copy template files with variable substitution"""
@@ -371,5 +448,4 @@ Thumbs.db
             f.write(gitignore_content)
             
         # Initial commit
-        subprocess.run(['git', 'add', '.'], check=True)
-      
+        subprocess.run(['git', 'add', '.'], check=True)    
