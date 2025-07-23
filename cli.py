@@ -8,12 +8,9 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm, IntPrompt
-from rich.layout import Layout
-from rich.live import Live
-from rich.progress import Progress, SpinnerColumn, TextColumn
 import click
-import docker
 from template_manager import TemplateManager
+from version_manager import VersionManager
 
 console = Console()
 docker_client = docker.from_env()
@@ -21,6 +18,7 @@ docker_client = docker.from_env()
 class DevManager:
     def __init__(self):
         self.template_manager = TemplateManager()
+        self.version_manager = VersionManager()
         self.projects_dir = Path.home() / 'scripts'
         self.sites_dir = Path.home() / 'sites'
         
@@ -30,18 +28,23 @@ class DevManager:
             console.clear()
             console.print(Panel.fit(
                 "[bold cyan]🚀 Development Environment Manager[/bold cyan]\n\n"
+                "[green]Quick Commands:[/green]\n"
+                "• [cyan]new[/cyan] - Create new project\n"
+                "• [cyan]versions[/cyan] - Manage tool versions\n"
+                "• [cyan]dotfiles[/cyan] - Sync dotfiles\n\n"
                 "[green]Choose an action:[/green]",
                 title="Dev Manager"
             ))
             
             options = [
-                "📝 Create New Project",
+                "🆕 Create New Project (new)",
                 "📋 List Projects", 
                 "🐳 Manage Containers",
                 "🌐 Manage Sites",
                 "📦 Template Management",
+                "🔧 Version Management",
+                "📁 Dotfiles Management",
                 "⚙️  Infrastructure",
-                "🔧 Configuration",
                 "❌ Exit"
             ]
             
@@ -51,23 +54,73 @@ class DevManager:
             choice = IntPrompt.ask("\nEnter your choice", choices=[str(i) for i in range(1, len(options)+1)])
             
             if choice == 1:
-                self.create_project_wizard()
-            elif choice == 2:
-                self.list_projects()
-            elif choice == 3:
-                self.manage_containers()
-            elif choice == 4:
-                self.manage_sites()
-            elif choice == 5:
-                self.template_management()
+                self.new_project_wizard()
             elif choice == 6:
-                self.infrastructure_management()
+                self.version_management()
             elif choice == 7:
-                self.configuration_management()
-            elif choice == 8:
+                self.dotfiles_management()
+            elif choice == 9:
                 console.print("[yellow]Goodbye![/yellow]")
                 break
-                
+
+    @click.group()
+    @click.pass_context
+    def cli(ctx):
+        """Development environment management tool"""
+        ctx.ensure_object(dict)
+        ctx.obj['manager'] = DevManager()
+
+    @cli.command()
+    @click.option('--template', '-t', help='Project template')
+    @click.option('--name', '-n', help='Project name')
+    @click.option('--domain', '-d', help='Domain for website projects')
+    @click.option('--versions', '-v', help='Specify versions (format: php:8.1,node:18,python:3.11)')
+    @click.pass_context
+    def new(ctx, template, name, domain, versions):
+        """Create new project (replaces new-project)"""
+        manager = ctx.obj['manager']
+    
+        # Parse version specifications
+        version_specs = {}
+        if versions:
+            for spec in versions.split(','):
+                if ':' in spec:
+                    tool, version = spec.split(':', 1)
+                    version_specs[tool.strip()] = version.strip()
+    
+        if not template or not name:
+            # Interactive mode
+            manager.new_project_wizard(version_specs)
+        else:
+            # Direct mode
+            success = manager.template_manager.create_project_from_template(
+                template, name, domain, version_specs
+            )
+            
+        if success:
+            console.print(f"[green]Project {name} created successfully![/green]")
+
+    @cli.command()
+    @click.pass_context 
+    def versions(ctx):
+        """Manage tool versions"""
+        manager = ctx.obj['manager']
+        manager.version_management()
+
+    @cli.command()
+    @click.option('--sync', is_flag=True, help='Sync dotfiles from GitHub')
+    @click.option('--install', is_flag=True, help='Install dotfiles')
+    @click.pass_context
+    def dotfiles(ctx, sync, install):
+        """Manage dotfiles"""
+        manager = ctx.obj['manager']
+        if sync:
+            manager.sync_dotfiles()
+        elif install:
+            manager.install_dotfiles()
+        else:
+            manager.dotfiles_management()
+    
     def create_project_wizard(self):
         """Interactive project creation wizard"""
         console.clear()
