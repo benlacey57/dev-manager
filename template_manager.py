@@ -17,6 +17,7 @@ class TemplateManager:
         self.config_dir = Path.home() / 'config' / 'templates'
         self.templates_dir.mkdir(parents=True, exist_ok=True)
         self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.version_manager = VersionManager()
         
     def get_available_templates(self) -> Dict[str, Dict]:
         """Dynamically discover available templates"""
@@ -53,9 +54,9 @@ class TemplateManager:
             )
         
         console.print(table)
-        
-    def create_project_from_template(self, template_name: str, project_name: str, domain: str = None):
-        """Create new project from template"""
+
+    def create_project_from_template(self, template_name: str, project_name: str, domain: str = None, version_specs: Dict[str, str] = None):
+        """Create new project from template with version specifications"""
         templates = self.get_available_templates()
         
         if template_name not in templates:
@@ -75,18 +76,28 @@ class TemplateManager:
         
         console.print(f"[green]Creating project from template: {template_name}[/green]")
         
-        # Copy template files
-        self._copy_template_files(template_dir, project_path, {
+        # Resolve versions
+        resolved_versions = self._resolve_versions(template_config, version_specs)
+        console.print(f"[cyan]Using versions: {resolved_versions}[/cyan]")
+        
+        # Copy template files with version substitution
+        variables = {
             'PROJECT_NAME': project_name,
             'DOMAIN': domain or f"{project_name}.local",
-            'PROJECT_PATH': str(project_path)
-        })
+            'PROJECT_PATH': str(project_path),
+            **{f'{tool.upper()}_VERSION': version for tool, version in resolved_versions.items()}
+        }
         
-        # Generate docker-compose.yml
-        self._generate_docker_compose(template_config, project_path, project_name)
+        self._copy_template_files(template_dir, project_path, variables)
+        
+        # Generate version-specific Dockerfiles
+        self._generate_version_dockerfiles(project_path, resolved_versions)
+        
+        # Generate docker-compose.yml with versions
+        self._generate_docker_compose(template_config, project_path, project_name, resolved_versions)
         
         # Create environment file
-        self._create_env_file(template_config, project_path, project_name, domain)
+        self._create_env_file(template_config, project_path, project_name, domain, resolved_versions)
         
         # Setup git repository
         self._setup_git_repo(project_path, project_name)
@@ -95,6 +106,120 @@ class TemplateManager:
         console.print(f"[cyan]Location: {project_path}[/cyan]")
         
         return True
+    
+    def _resolve_versions(self, template_config: Dict, version_specs: Dict[str, str] = None) -> Dict[str, str]:
+        """Resolve versions for template"""
+        resolved = {}
+        
+        # Get required tools from template
+        tech_stack = template_config.get('tech_stack', [])
+        
+        for tech in tech_stack:
+            tool_name = tech.lower().split()[0]  # Extract tool name from "PHP 8.1" -> "php"
+            
+            if version_specs and tool_name in version_specs:
+                # Use specified version
+                resolved[tool_name] = version_specs[tool_name]
+            else:
+                # Use default version
+                resolved[tool_name] = self.version_manager.get_default_version(tool_name)
+        
+        return resolved
+    
+    def _generate_version_dockerfiles(self, project_path: Path, versions: Dict[str, str]):
+        """Generate Dockerfiles for specific versions"""
+        docker_dir = project_path / 'docker'
+        docker_dir.mkdir(exist_ok=True)
+        
+        for tool, version in versions.items():
+            dockerfile_content = self.version_manager.generate_dockerfile(tool, version, project_path)
+            if dockerfile_content:
+                dockerfile_path = docker_dir / f'Dockerfile.{tool}'
+                with open(dockerfile_path, 'w') as f:
+                    f.write(dockerfile_content)
+                console.print(f"  Generated: docker/Dockerfile.{tool} (v{version})")
+    
+    def _generate_docker_compose(self, template_config: Dict, project_path: Path, project_name: str, versions: Dict[str, str]):
+        """Generate docker-compose.yml with version-specific services"""
+        compose_config = {
+            'version': '3.8',
+            'services': {},
+            'networks': {
+                'dev-network': {
+                    'driver': 'bridge'
+                }
+            },
+            'volumes': {}
+        }
+        
+        # Determine primary service based on template
+        primary_tool = self._get_primary_tool(template_config)
+        
+        if primary_tool and primary_tool in versions:
+            # Main development service
+            main_service = {
+                'build': {
+                    'context': '.',
+                    'dockerfile': f'docker/Dockerfile.{primary_tool}'
+                },
+                'container_name': f"{project_name}-dev",
+                'volumes': [
+                    ".:/workspace",
+                    "/workspace/node_modules"  # Prevent overwrite
+                ],
+                'ports': template_config.get('ports', ['8080:8080']),
+                'environment': [
+                    f"PROJECT_NAME={project_name}",
+                    f"{primary_tool.upper()}_VERSION={versions[primary_tool]}",
+                    "NODE_ENV=development"
+                ],
+                'networks': ['dev-network'],
+                'labels': [
+                    f"traefik.enable=true",
+                    f"traefik.http.routers.{project_name}.rule=Host(`{project_name}.local`)",
+                    f"traefik.http.services.{project_name}.loadbalancer.server.port=8080",
+                    f"traefik.docker.network=dev-network"
+                ]
+            }
+            
+            compose_config['services']['dev'] = main_service
+        
+        # Add database services with versions
+        if 'mysql' in str(template_config).lower() or 'laravel' in template_config.get('name', '').lower():
+            compose_config['services']['db'] = {
+                'image': 'mysql:8.0',
+                'container_name': f"{project_name}-db",
+                'environment': [
+                    f"MYSQL_DATABASE={project_name}",
+                    "MYSQL_USER=user",
+                    "MYSQL_PASSWORD=password",
+                    "MYSQL_ROOT_PASSWORD=rootpassword"
+                ],
+                'volumes': [
+                    "mysql_data:/var/lib/mysql"
+                ],
+                'ports': ['3306:3306'],
+                'networks': ['dev-network']
+            }
+            compose_config['volumes']['mysql_data'] = {}
+        
+        elif 'postgres' in str(template_config).lower():
+            compose_config['services']['db'] = {
+                'image': 'postgres:15',
+                'container_name': f"{project_name}-db",
+                'environment': [
+                    f"POSTGRES_DB={project_name}",
+                    "POSTGRES_USER=user",
+                    "POSTGRES_PASSWORD=password"
+                ],
+                'volumes': [
+                    "postgres_data:/var/lib/postgresql/data"
+                ],
+                'ports': ['5432:5432'],
+                'networks': ['dev-network']
+            }
+            compose_config['volumes']['postgres_data'] = {}
+            
         
     def _copy_template_files(self, template_dir: Path, project_path: Path, variables: Dict[str, str]):
         """Copy template files with variable substitution"""
