@@ -1,0 +1,15 @@
+bind-addr: 0.0.0.0:8080
+auth: password
+password: devpassword
+cert: false
+disable-telemetry: true
+disable-update-check: true#!/bin/bash
+# ~/docker/base/dev-tools/startup.sh
+set -e
+
+# Start code-server with hot-reload
+exec code-server \
+    --bind-addr 0.0.0.0:8080 \
+    --disable-telemetry \
+    --disable-update-check \
+    /workspace
