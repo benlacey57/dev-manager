@@ -1,0 +1,40 @@
+name: python-fastapi
+description: FastAPI web application with async support and PostgreSQL
+base_overlay: python
+tech_stack:
+  - Python 3.11
+  - FastAPI
+  - PostgreSQL
+  - Redis
+  - Pytest
+features:
+  - Hot reload
+  - API documentation
+  - Database migrations
+  - Authentication
+  - Background tasks
+ports:
+  - "8000:8000"
+  - "8080:8080"
+services:
+  db:
+    image: postgres:15
+    environment:
+      - "POSTGRES_DB={{PROJECT_NAME}}"
+      - "POSTGRES_USER=user"
+      - "POSTGRES_PASSWORD=password"
+    volumes:
+      - "postgres_data:/var/lib/postgresql/data"
+    ports:
+      - "5432:5432"
+    networks:
+      - "dev-network"
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - "dev-network"
+environment:
+  DATABASE_URL: "postgresql://user:password@db:5432/{{PROJECT_NAME}}"
+  REDIS_URL: "redis://redis:6379"
