@@ -1,0 +1,35 @@
+name: nuxt
+description: Nuxt.js 3 application with TypeScript and Tailwind CSS
+base_overlay: node
+tech_stack:
+  - Node.js 18
+  - Nuxt.js 3
+  - TypeScript
+  - Tailwind CSS
+  - Prisma
+features:
+  - Hot reload
+  - SSR/SSG
+  - TypeScript
+  - Tailwind CSS
+  - API routes
+ports:
+  - "3000:3000"
+  - "8080:8080"
+services:
+  db:
+    image: postgres:15
+    environment:
+      - "POSTGRES_DB={{PROJECT_NAME}}"
+      - "POSTGRES_USER=user"
+      - "POSTGRES_PASSWORD=password"
+    volumes:
+      - "postgres_data:/var/lib/postgresql/data"
+    ports:
+      - "5432:5432"
+    networks:
+      - "dev-network"
+environment:
+  DATABASE_URL: "postgresql://user:password@db:5432/{{PROJECT_NAME}}"
+  NITRO_PORT: "3000"
+  NITRO_HOST: "0.0.0.0"
