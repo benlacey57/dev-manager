@@ -1,1 +1,23 @@
+# Default configuration values
+username: developer
+email: dev@example.com
+ssh_port: 22
+domain: ""
+github_username: ""
 
+# Feature flags
+install_docker: true
+install_nginx: true
+setup_firewall: true
+setup_backups: true
+
+# Versions
+php_version: "8.2"
+node_version: "18"
+python_version: "3.11"
+
+# Paths
+user_home: "/home/{username}"
+scripts_dir: "/home/{username}/scripts"
+sites_dir: "/home/{username}/sites"
+docker_dir: "/home/{username}/docker"
