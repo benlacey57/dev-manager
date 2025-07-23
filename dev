@@ -1,0 +1,140 @@
+#!/bin/bash
+
+# Main CLI entry point
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log() {
+    echo -e "${GREEN}[$(date '+%H:%M:%S')] $1${NC}"
+}
+
+# Check if Python CLI exists
+CLI_PATH="$HOME/scripts/dev-manager/cli.py"
+
+if [[ ! -f "$CLI_PATH" ]]; then
+    echo -e "${RED}Error: CLI not found at $CLI_PATH${NC}"
+    exit 1
+fi
+
+# Handle direct commands
+case "${1:-help}" in
+    "new")
+        shift
+        python3 "$CLI_PATH" new "$@"
+        ;;
+    "versions")
+        python3 "$CLI_PATH" versions
+        ;;
+    "dotfiles")
+        shift
+        python3 "$CLI_PATH" dotfiles "$@"
+        ;;
+    "start")
+        if [[ $# -ge 2 ]]; then
+            PROJECT_NAME="$2"
+            log "Starting project: $PROJECT_NAME"
+            
+            # Find project directory
+            if [[ -d "$HOME/scripts/$PROJECT_NAME" ]]; then
+                cd "$HOME/scripts/$PROJECT_NAME"
+            elif [[ -d "$HOME/sites/$PROJECT_NAME" ]]; then
+                cd "$HOME/sites/$PROJECT_NAME"
+            else
+                echo -e "${RED}Project $PROJECT_NAME not found${NC}"
+                exit 1
+            fi
+            
+            docker-compose up -d
+            log "Project $PROJECT_NAME started!"
+            echo -e "${CYAN}Code Server: http://localhost:8080${NC}"
+            echo -e "${CYAN}Application: http://localhost:3000${NC}"
+        else
+            python3 "$CLI_PATH"
+        fi
+        ;;
+    "stop")
+        if [[ $# -ge 2 ]]; then
+            PROJECT_NAME="$2"
+            log "Stopping project: $PROJECT_NAME"
+            
+            # Find project directory
+            if [[ -d "$HOME/scripts/$PROJECT_NAME" ]]; then
+                cd "$HOME/scripts/$PROJECT_NAME"
+            elif [[ -d "$HOME/sites/$PROJECT_NAME" ]]; then
+                cd "$HOME/sites/$PROJECT_NAME"
+            else
+                echo -e "${RED}Project $PROJECT_NAME not found${NC}"
+                exit 1
+            fi
+            
+            docker-compose down
+            log "Project $PROJECT_NAME stopped!"
+        else
+            echo -e "${RED}Usage: dev stop <project-name>${NC}"
+        fi
+        ;;
+    "list")
+        echo -e "${CYAN}📝 Script Projects:${NC}"
+        for project in "$HOME/scripts"/*; do
+            if [[ -d "$project" && -f "$project/docker-compose.yml" ]]; then
+                basename "$project"
+            fi
+        done
+        
+        echo -e "\n${CYAN}🌐 Website Projects:${NC}"
+        for site in "$HOME/sites"/*; do
+            if [[ -d "$site" && -f "$site/docker-compose.yml" ]]; then
+                basename "$site"
+            fi
+        done
+        ;;
+    "help"|"-h"|"--help")
+        cat << EOF
+${GREEN}🚀 Development Environment Manager${NC}
+
+${CYAN}Quick Commands:${NC}
+  new [options]              Create new project
+  start <project>           Start project containers
+  stop <project>            Stop project containers
+  list                      List all projects
+  versions                  Manage tool versions
+  dotfiles [sync|install]   Manage dotfiles
+
+${CYAN}Examples:${NC}
+  dev new                                    # Interactive project creation
+  dev new -t python-fastapi -n myapi        # Create FastAPI project
+  dev new -t laravel -n mysite -d mysite.co.uk --versions php:8.2,mysql:8.0
+  dev start myapi                           # Start myapi project
+  dev versions                              # Manage versions
+  dev dotfiles sync                         # Sync dotfiles from GitHub
+
+${CYAN}Interactive Mode:${NC}
+  dev                       # Launch interactive menu
+
+${CYAN}Version Management:${NC}
+  You can specify versions when creating projects:
+  --versions php:8.2,node:18,python:3.11
+
+${CYAN}Supported Tools:${NC}
+  • PHP (7.4, 8.0, 8.1, 8.2, 8.3)
+  • Node.js (16, 18, 20, latest)
+  • Python (3.8, 3.9, 3.10, 3.11, 3.12)
+  • Laravel (9, 10, 11)
+  • WordPress (6.2, 6.3, 6.4, latest)
+  • Vue (2, 3)
+  • Nuxt (2, 3)
+
+EOF
+        ;;
+    *)
+        # Default to interactive mode
+        python3 "$CLI_PATH"
+        ;;
+esac
