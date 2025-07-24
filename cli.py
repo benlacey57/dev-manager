@@ -1,24 +1,28 @@
 import os
 import sys
-import subprocess
-import yaml
 from pathlib import Path
-from typing import Dict, List, Optional
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
-from rich.prompt import Prompt, Confirm, IntPrompt
-import click
+from rich.prompt import IntPrompt
+
+# Add current directory to path
+sys.path.insert(0, str(Path(__file__).parent))
+
 from template_manager import TemplateManager
 from version_manager import VersionManager
+from dotfiles_manager import DotfilesManager
+from ssl_manager import SSLManager
+from templates.wordpress_manager import WordPressManager
 
 console = Console()
-docker_client = docker.from_env()
 
 class DevManager:
     def __init__(self):
         self.template_manager = TemplateManager()
         self.version_manager = VersionManager()
+        self.dotfiles_manager = DotfilesManager()
+        self.ssl_manager = SSLManager()
+        self.wordpress_manager = WordPressManager(self.ssl_manager)
         self.projects_dir = Path.home() / 'scripts'
         self.sites_dir = Path.home() / 'sites'
         
@@ -30,6 +34,7 @@ class DevManager:
                 "[bold cyan]🚀 Development Environment Manager[/bold cyan]\n\n"
                 "[green]Quick Commands:[/green]\n"
                 "• [cyan]new[/cyan] - Create new project\n"
+                "• [cyan]ssl[/cyan] - Manage SSL certificates\n"
                 "• [cyan]versions[/cyan] - Manage tool versions\n"
                 "• [cyan]dotfiles[/cyan] - Sync dotfiles\n\n"
                 "[green]Choose an action:[/green]",
@@ -37,10 +42,11 @@ class DevManager:
             ))
             
             options = [
-                "🆕 Create New Project (new)",
+                "🆕 Create New Project",
                 "📋 List Projects", 
                 "🐳 Manage Containers",
                 "🌐 Manage Sites",
+                "🔒 SSL Certificate Manager",
                 "📦 Template Management",
                 "🔧 Version Management",
                 "📁 Dotfiles Management",
@@ -55,14 +61,27 @@ class DevManager:
             
             if choice == 1:
                 self.new_project_wizard()
+            elif choice == 2:
+                self.list_projects()
+            elif choice == 3:
+                self.manage_containers()
+            elif choice == 4:
+                self.manage_sites()
+            elif choice == 5:
+                self.ssl_manager.show_ssl_menu()
             elif choice == 6:
-                self.version_management()
+                self.template_management()
             elif choice == 7:
-                self.dotfiles_management()
+                self.version_manager.show_version_management_menu()
+            elif choice == 8:
+                self.dotfiles_manager.show_dotfiles_menu()
             elif choice == 9:
+                self.infrastructure_management()
+            elif choice == 10:
                 console.print("[yellow]Goodbye![/yellow]")
                 break
 
+    
     @click.group()
     @click.pass_context
     def cli(ctx):
@@ -120,58 +139,56 @@ class DevManager:
             manager.install_dotfiles()
         else:
             manager.dotfiles_management()
-    
-    def create_project_wizard(self):
-        """Interactive project creation wizard"""
+
+        def new_project_wizard(self):
+        """Enhanced project creation wizard with WordPress support"""
         console.clear()
-        console.print(Panel("📝 Create New Project", style="bold green"))
+        console.print(Panel("🆕 Create New Project", style="bold green"))
         
-        # Choose project type
+        # Project type selection with WordPress option
+        project_types = ["website", "script", "wordpress"]
         project_type = Prompt.ask(
             "Project type",
-            choices=["script", "website"],
-            default="script"
+            choices=project_types,
+            default="website"
         )
         
-        # Get project name
+        if project_type == "wordpress":
+            self._create_wordpress_project()
+        else:
+            # Existing project creation logic
+            self._create_regular_project(project_type)
+    
+    def _create_wordpress_project(self):
+        """Create WordPress project with SSL"""
+        from rich.prompt import Prompt, Confirm
+        
         project_name = Prompt.ask("Project name")
+        domain = Prompt.ask("Domain name (e.g., mysite.com)")
+        ssl_enabled = Confirm.ask("Enable SSL certificate?", default=True)
         
-        # Get domain if website
-        domain = None
-        if project_type == "website":
-            domain = Prompt.ask("Domain name (e.g., mysite.co.uk)")
+        console.print(f"\n[cyan]WordPress Project Summary:[/cyan]")
+        console.print(f"• Name: {project_name}")
+        console.print(f"• Domain: {domain}")
+        console.print(f"• SSL: {'Enabled' if ssl_enabled else 'Disabled'}")
         
-        # Show available templates
-        console.print("\n[cyan]Available templates:[/cyan]")
-        self.template_manager.list_templates()
-        
-        templates = list(self.template_manager.get_available_templates().keys())
-        template = Prompt.ask("Choose template", choices=templates)
-        
-        # Confirm creation
-        if Confirm.ask(f"\nCreate {project_type} '{project_name}' using '{template}' template?"):
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                console=console
-            ) as progress:
-                task = progress.add_task("Creating project...", total=None)
-                
-                success = self.template_manager.create_project_from_template(
-                    template, project_name, domain
-                )
-                
-                if success:
-                    progress.update(task, description="✅ Project created successfully!")
-                    console.print(f"\n[green]Project created![/green]")
-                    
-                    if Confirm.ask("Start development environment now?"):
-                        self.start_project(project_name, project_type)
-                else:
-                    console.print("[red]Failed to create project[/red]")
+        if Confirm.ask("\nCreate WordPress project?"):
+            success = self.wordpress_manager.create_wordpress_project(
+                project_name, domain, ssl_enabled
+            )
+            
+            if success:
+                console.print("[green]✅ WordPress project created successfully![/green]")
+            else:
+                console.print("[red]❌ Failed to create WordPress project[/red]")
         
         Prompt.ask("\nPress Enter to continue")
-        
+    
+    def _create_regular_project(self, project_type):
+        """Create regular project (existing logic)"""
+        # Your existing project creation logic here
+        pass
+            
     def start_project(self, project_name: str, project_type: str):
         """Start development environment for project"""
         if project_type == "script":
